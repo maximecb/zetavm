@@ -476,7 +476,7 @@ Parse an object literal
 Value parseObject(Input& input)
 {
     // Allocate an empty object
-    Object obj = Object::newObject();
+    Object obj = Object();
 
     // Until the end of the list
     for (;;)

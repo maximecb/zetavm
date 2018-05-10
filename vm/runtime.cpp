@@ -3,6 +3,7 @@
 #include <cstring>
 #include <iostream>
 #include "runtime.h"
+#include "interp.h"
 
 /// Undefined value constant
 /// Note: zeroed memory is automatically undefined
@@ -22,6 +23,10 @@ VM vm;
 
 // Global string pool
 StringPool stringPool;
+
+bool isGCRoot(Tag tag){
+    return tag == TAG_OBJECT || tag == TAG_ARRAY || tag == TAG_STRING || tag == TAG_IMGREF;
+}
 
 /// Produce a string representation of a value
 std::string Value::toString() const
@@ -70,6 +75,108 @@ bool Value::isPointer() const
     }
 }
 
+Value::Value(Word w, Tag t) : word(w), tag(t) 
+{
+    if (isGCRoot(t))
+    {
+        Value* head = vm.head;
+        next = head;        
+        if (head != NULL)
+        {
+            vm.head->prev = this;
+        }
+        vm.head = this;
+    }
+};
+
+Value::~Value() {
+    if (isGCRoot(tag))
+    {
+        if (prev != NULL)
+        {
+            prev->next = next;
+        }
+        else if (vm.head == this)
+        {
+            vm.head = next;
+        }
+        if (next != NULL)
+        {   
+            next->prev = prev;
+        }
+        prev = NULL;
+        next = NULL;
+    }
+}
+
+Value::Value(const Value& val)
+{
+    if (isGCRoot(val.getTag()))
+    {
+        Value* head = vm.head;
+        next = head; 
+        prev = NULL;       
+        if (head != NULL)
+        {
+            vm.head->prev = this;
+        }
+        vm.head = this;
+    }
+    tag = val.getTag();
+    word = val.getWord();
+}
+
+Value& Value::operator= (const Value& val)
+{
+    if (isGCRoot(val.getTag()) && next == NULL && prev == NULL)
+    {
+        Value* head = vm.head;
+        next = head; 
+        prev = NULL;       
+        if (head != NULL)
+        {
+            vm.head->prev = this;
+        }
+        vm.head = this;
+    } 
+    else if (!isGCRoot(val.getTag()) && isGCRoot(tag))
+    {
+        if (prev != NULL)
+        {
+            prev->next = next;
+        }
+        else if (vm.head == this)
+        {
+            vm.head = next;
+        }
+        if (next != NULL)
+        {   
+            next->prev = prev;
+        }
+        prev = NULL;
+        next = NULL;
+    } 
+    tag = val.getTag();
+    word = val.getWord();
+    return *this;
+}
+
+bool isMarked(refptr obj)
+{ 
+    auto header = *(uint64_t*)obj;
+    return (header & HEADER_MSK_MARK);
+}
+void setMark(refptr obj) 
+{ 
+    auto header = *(uint64_t*)obj;
+    *(uint64_t*)(obj) = header | HEADER_MSK_MARK;
+}
+void clearMark(refptr obj)
+{
+    auto header = *(uint64_t*)obj;
+    *(uint64_t*)(obj) = header & (~HEADER_MSK_MARK);
+}
+
 Value::operator std::string () const
 {
     assert (isString());
@@ -84,16 +191,128 @@ VM::VM()
 Allocates a block of memory
 Note that this function guarantees that the memory is zeroed out
 */
+
+
 Value VM::alloc(uint32_t size, Tag tag)
 {
     // FIXME: use an alloc pool of some kind
+    if (allocated >= limit)
+    {   
+        mark();
+        sweep();
+        limit = allocated * 2;   
+    } 
     auto ptr = (refptr)calloc(1, size);
-
-    // Set the tag in the object header
+    if (isGCRoot(tag))
+    {
+        values.push_back(ptr);
+    }
+    //Set the tag in the object header
     *(Tag*)ptr = tag;
-
+    allocated += (size_t)size;
     // Wrap the pointer in a tagged value
     return Value(ptr, tag);
+}
+
+void VM::mark()
+{
+    markStackValues();
+    Value* val = head;
+    while (val != NULL)
+    {   
+        markValues(*val);
+        val = val->next;
+    }
+}
+
+void VM::markValues(Value root)
+{   
+    Tag tag = root.getTag();
+    if (!(isGCRoot(tag))) return;
+    std::vector<refptr> toMark = { (refptr)(root) };
+    while (!toMark.empty())
+    {
+        refptr ptr = toMark.back();
+        toMark.pop_back();
+        Tag tag = *(Tag*)ptr;
+        // std::cout << tagToStr(tag) << std::endl;
+        if (isGCRoot(tag))
+        {
+            // If this node was previously visited, skip it
+            if (isMarked(ptr))
+                continue;
+            // Mark the node as visited
+            setMark(ptr);
+        }
+        if (tag == TAG_OBJECT)
+        {
+            // std::cout << "obj" << std::endl;
+            Object objRoot = (Object)Value(ptr, tag);;
+            for (auto itr = ObjFieldItr(objRoot); itr.valid(); itr.next())
+            {
+                auto fieldName = itr.get();
+                Value field = objRoot.getField(fieldName);
+                Tag tag = field.getTag();
+                if (isGCRoot(tag))
+                    toMark.push_back((refptr)field);
+            }
+        }
+        else if (tag == TAG_ARRAY) 
+        {   
+            Array arrRoot = (Array)Value(ptr, tag);
+            // std::cout << "arr" << std::endl;
+            auto len = arrRoot.length();
+            for(size_t i = 0; i < len; i++)
+            {
+                Value field = arrRoot.getElem(i);
+                Tag tag = field.getTag();
+                if (isGCRoot(tag)) 
+                    toMark.push_back((refptr)field);
+            }
+        }
+        if (tag == TAG_OBJECT || tag == TAG_ARRAY)
+        {
+            auto header = *(uint64_t*)ptr;
+            if (header & HEADER_MSK_NEXT)
+            {
+                auto nextPtr = *(refptr*)(ptr + OBJ_OF_NEXT);
+                assert (nextPtr != nullptr);
+                toMark.push_back(nextPtr);
+            }
+        }
+        if (tag == TAG_IMGREF)
+        {
+            ImgRef imgRef = (ImgRef)Value(ptr, tag);
+            refptr strPtr = imgRef.getStringPtr();
+            toMark.push_back(strPtr);
+        }
+    }
+}
+
+void VM::sweep() 
+{
+    std::vector<refptr> oldValues = values;
+    values = {};
+    for (refptr ptr : oldValues) 
+    {
+        auto header = *(uint64_t*)ptr;
+        if (!(header & HEADER_MSK_MARK))
+        {
+            Tag tag = *(Tag*)ptr;
+            if (tag == TAG_STRING)
+            {
+                String str = Value(ptr, tag);
+                stringPool.removeString((std::string)str);
+            }
+            *(uint64_t*)(ptr) = header & (~HEADER_MSK_NEXT);
+            free(ptr);
+        } 
+        else 
+        {
+            clearMark(ptr);
+            values.push_back(ptr);
+        }
+    }
 }
 
 void Wrapper::setNextPtr(refptr obj, refptr nextPtr)
@@ -131,13 +350,13 @@ refptr Wrapper::getObjPtr()
 
 String::String(std::string str)
 {
-    this->val = stringPool.getString(str);
+    val = stringPool.getString(str);
 }
 
 String::String(Value value)
 {
     assert (value.isString());
-    this->val = value;
+    val = value;
 }
 
 uint32_t String::length() const
@@ -327,7 +546,7 @@ Value Array::pop()
 }
 
 /// Allocate a new empty object
-Object Object::newObject(size_t cap)
+Object::Object(size_t cap)
 {
     if (cap < MIN_CAP)
         cap = MIN_CAP;
@@ -336,17 +555,14 @@ Object Object::newObject(size_t cap)
     auto numBytes = memSize(cap);
 
     // Allocate memory
-    auto val = vm.alloc(numBytes, TAG_OBJECT);
+    val = vm.alloc(numBytes, TAG_OBJECT);
     auto ptr = (refptr)val;
 
     // Set the object capacity
     *(uint32_t*)(ptr + OF_CAP) = cap;
-
     // TODO: init object shape, when shapes actually implemented!
 
     // No field initialization necessary
-
-    return val;
 }
 
 Object::Object(Value value)
@@ -415,7 +631,7 @@ void Object::setField(String name, Value value)
         assert (cap > 0);
         auto newCap = 2 * cap;
         //std::cout << "extending object capacity from " << cap << " to " << newCap << std::endl;
-        auto newObj = Object::newObject(newCap);
+        auto newObj = Object(newCap);
 
         // Copy properties to the new object
         for (auto itr = ObjFieldItr(*this); itr.valid(); itr.next())
@@ -433,8 +649,8 @@ void Object::setField(String name, Value value)
 
         ptr = getObjPtr();
         cap = getCap();
-    }
 
+    }
     // Write the new property
     assert (slotIdx + 1 < cap);
     auto values = (Value*)(ptr + OF_FIELDS);
@@ -597,6 +813,13 @@ ImgRef::ImgRef(Value val)
     this->val = val;
 }
 
+refptr ImgRef::getStringPtr() const {
+    auto ptr = (refptr)val;
+    assert (ptr != nullptr);
+
+    return *(refptr*)(ptr + OF_SYM);
+}
+
 std::string ImgRef::getName() const
 {
     auto ptr = (refptr)val;
@@ -663,7 +886,12 @@ Value StringPool::getString(std::string str)
     {
         return newString(str);
     }
-    return iter->second;
+    return Value(iter->second, TAG_STRING);
+}
+
+void StringPool::removeString(std::string str)
+{
+    pool.erase(str);
 }
 
 Value StringPool::newString(std::string str)
@@ -681,7 +909,7 @@ Value StringPool::newString(std::string str)
 
     // Copy the string data
     strcpy((char*)(ptr + String::OF_DATA), str.c_str());
-    pool.insert({str, val});
+    pool.insert({str, ptr});
     return val;
 }
 
@@ -814,7 +1042,7 @@ void testRuntime()
     assert (arr3.length() == 2);
 
     // Objects
-    auto obj = Object::newObject();
+    auto obj = Object();
     assert (!obj.hasField("foo"));
     obj.setField("foo", Value::ONE);
     obj.setField("bar", Value::TWO);

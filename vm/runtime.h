@@ -5,6 +5,7 @@
 #include <string>
 #include <cstring>
 #include <unordered_map>
+#include <vector>
 
 /// Type tag, 8 bits
 typedef uint8_t Tag;
@@ -35,6 +36,9 @@ const size_t HEADER_SIZE = sizeof(obj_header);
 /// Bit flag indicating the next pointer is set
 const size_t HEADER_IDX_NEXT = 15;
 const size_t HEADER_MSK_NEXT = 1 << HEADER_IDX_NEXT;
+
+const size_t HEADER_IDX_MARK = 14;
+const size_t HEADER_MSK_MARK = 1 << HEADER_IDX_MARK;
 
 /// Offset of the next pointer
 const size_t OBJ_OF_NEXT = HEADER_SIZE;
@@ -67,7 +71,8 @@ private:
     Tag tag;
 
 public:
-
+    Value* prev = NULL;
+    Value* next = NULL;
     static const Value ZERO;
     static const Value ONE;
     static const Value TWO;
@@ -78,9 +83,9 @@ public:
 
     Value() : Value(UNDEF.word, UNDEF.tag) {}
     Value(refptr p, Tag t) : Value(Word(p), t) {}
-    Value(Word w, Tag t) : word(w), tag(t) {};
-    ~Value() {}
-
+    Value(Word w, Tag t);
+    Value(const Value& val);
+    ~Value();
     // Static constructors. These are needed because of type ambiguity.
     static Value int32(int32_t v) { return Value(Word((int64_t)v), TAG_INT32); }
     static Value float32(float v) { return Value(Word(v), TAG_FLOAT32); }
@@ -96,10 +101,12 @@ public:
     Word getWord() const { return word; }
     Tag getTag() const { return tag; }
 
+
     bool isPointer() const;
 
     std::string toString() const;
 
+    Value& operator= (const Value& val);
     inline operator bool () const
     {
         assert (tag == TAG_BOOL);
@@ -145,7 +152,9 @@ class VM
 private:
 
     // TODO: total memory size allocated
-
+    size_t allocated;
+    size_t limit = 300000;
+    std::vector<refptr> values = {};
     // TODO: dynamically grow pools?
 
     // TODO: pools for sizes up to 32 (words)
@@ -155,11 +164,21 @@ private:
 public:
 
     VM();
-
+    void mark();
+    void markValues(Value root);
+    void sweep();
+    bool checkIfExists(refptr ptr)
+    {
+        for (auto value : values)
+        {
+            if (value == ptr) return true;
+        }
+        return false;
+    }
+    Value* head = NULL;
+    size_t length; // TODO: get rid of this;
     /// Allocate a block of memory on the heap
     Value alloc(uint32_t size, Tag tag);
-
-    size_t allocated() const;
 };
 
 /**
@@ -371,7 +390,7 @@ public:
     }
 
     /// Allocate a new empty object
-    static Object newObject(size_t cap = 0);
+    Object(size_t cap = 0);
 
     Object(Value value);
 
@@ -491,6 +510,7 @@ public:
     ImgRef(String symbol);
     ImgRef(Value val);
 
+    refptr getStringPtr() const;
     std::string getName() const;
 };
 
@@ -509,12 +529,13 @@ private:
             return (size_t)murmurHash2(ptr, len, 1337);
         }
     };
-    std::unordered_map<std::string, Value, StringHasher> pool;
+    std::unordered_map<std::string, refptr, StringHasher> pool;
     Value newString(std::string str);
 
 public:
     StringPool();
     Value getString(std::string str);
+    void removeString(std::string str);
 };
 
 /// Global virtual machine instance

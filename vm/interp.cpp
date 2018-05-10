@@ -6,6 +6,7 @@
 #include "interp.h"
 #include "packages.h"
 #include <math.h>
+#include <unordered_set>
 
 /// Opcode enumeration
 enum Opcode : uint16_t
@@ -227,6 +228,16 @@ uint8_t* instrPtr = nullptr;
 
 /// Cache of all possible one-character string values
 Value charStrings[256];
+
+void markStackValues() 
+{
+    for(auto ptr = stackPtr; ptr < stackBase; ptr++)
+    {
+        Tag tag = ptr->getTag();
+        if (tag == TAG_ARRAY || tag == TAG_OBJECT || tag == TAG_STRING)
+            vm.markValues(*ptr);
+    }
+}
 
 /// Write a value to the code heap
 template <typename T> void writeCode(T val)
@@ -1426,7 +1437,7 @@ __attribute__((always_inline)) inline void hostCall(
         stackPtr += numArgs;
 
         // Create an exception object
-        auto excVal = Object::newObject();
+        auto excVal = Object();
         auto errStr = String(err.toString());
         excVal.setField("msg", errStr);
 
@@ -1989,7 +2000,7 @@ Value execCode()
             case NEW_OBJECT:
             {
                 auto capacity = popInt32();
-                auto obj = Object::newObject(capacity);
+                auto obj = Object(capacity);
                 pushVal(obj);
             }
             break;

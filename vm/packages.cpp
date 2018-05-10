@@ -137,7 +137,7 @@ namespace core_vm_0
 
     Value get_pkg()
     {
-        auto exports = Object::newObject(32);
+        auto exports = Object(32);
         setHostFn(exports, "import"       , 1, (void*)import);
         setHostFn(exports, "load"         , 1, (void*)load);
         setHostFn(exports, "parse"        , 1, (void*)parse);
@@ -277,7 +277,7 @@ namespace core_io_0
 
     Value get_pkg()
     {
-        auto exports = Object::newObject(32);
+        auto exports = Object(32);
         setHostFn(exports, "print_int32"  , 1, (void*)print_int32);
         setHostFn(exports, "print_float32", 1, (void*)print_float32);
         setHostFn(exports, "print_str"    , 1, (void*)print_str);
@@ -349,7 +349,7 @@ namespace core_time_0
         time(&rawtime);
         timeinfo = localtime(&rawtime);
 
-        auto obj = Object::newObject();
+        auto obj = Object();
         obj.setField("sec", Value::int32(timeinfo->tm_sec));
         obj.setField("min", Value::int32(timeinfo->tm_min));
         obj.setField("hour", Value::int32(timeinfo->tm_hour));
@@ -379,7 +379,7 @@ namespace core_time_0
             gettimeofday(&startTime, NULL);
         #endif
 
-        auto exports = Object::newObject(32);
+        auto exports = Object(32);
         setHostFn(exports, "get_time_millis", 0, (void*)get_time_millis);
         setHostFn(exports, "get_local_time", 0, (void*)get_local_time);
         return exports;
@@ -540,7 +540,7 @@ namespace core_window_0
             {
                 case SDL_QUIT:
                 {
-                    auto obj = Object::newObject();
+                    auto obj = Object();
                     obj.setField("type", String("quit"));
                     return obj;
                 }
@@ -559,7 +559,7 @@ namespace core_window_0
                     if (keyName == "")
                         continue;
 
-                    auto obj = Object::newObject();
+                    auto obj = Object();
                     obj.setField("type", eventType);
                     obj.setField("key", String(keyName));
                     return obj;
@@ -585,7 +585,7 @@ namespace core_window_0
                         default: assert (false);
                     }
 
-                    auto obj = Object::newObject();
+                    auto obj = Object();
                     obj.setField("type", eventType);
                     obj.setField("x", Value::int32(event.button.x));
                     obj.setField("y", Value::int32(event.button.y));
@@ -636,7 +636,7 @@ namespace core_window_0
     Value get_pkg()
     {
 #ifdef HAVE_SDL2
-        auto exports = Object::newObject(32);
+        auto exports = Object(32);
         setHostFn(exports, "create_window"  , 3, (void*)create_window);
         setHostFn(exports, "destroy_window" , 1, (void*)destroy_window);
         setHostFn(exports, "get_next_event" , 1, (void*)get_next_event);
@@ -762,7 +762,7 @@ namespace core_audio_0
     Value get_pkg()
     {
 #ifdef HAVE_SDL2
-        auto exports = Object::newObject(32);
+        auto exports = Object(32);
         setHostFn(exports, "open_output_device" , 2, (void*)open_output_device);
         setHostFn(exports, "close_output_device", 1, (void*)close_output_device);
         setHostFn(exports, "queue_samples"      , 2, (void*)queue_samples);
@@ -804,7 +804,7 @@ Object load(std::string pkgPath)
         }
 
         // Create an object to pass the input data
-        auto inputObj = Object::newObject();
+        auto inputObj = Object();
         inputObj.setField("src_name", String(input.getSrcName()));
         inputObj.setField("src_string", String(input.getInputStr()));
         inputObj.setField("str_idx", Value::int32(input.getInputIdx()));

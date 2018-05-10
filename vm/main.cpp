@@ -65,7 +65,7 @@ int runPkgMain(
 }
 
 int main(int argc, char** argv)
-{
+{        
     BoolOpt test('t', "test", false, "runs unit tests");
     BoolOpt help('h', "help", false, "prints this help message.");
     OptParser parser;

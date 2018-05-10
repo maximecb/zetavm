@@ -8,6 +8,8 @@ typedef std::vector<Value> ValueVec;
 /// Initialize the interpreter
 void initInterp();
 
+void markStackValues();
+
 /// Call a function exported by a package
 Value callExportFn(
     Object pkg,
