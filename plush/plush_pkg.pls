@@ -650,7 +650,8 @@ var parseAtom = function (input)
     if (op != false)
     {
         var expr = parseExprPrec(input, op.prec);
-        return UnOpExpr::{ op:op, expr:expr };
+        var srcPos = input:getPos();
+        return UnOpExpr::{ op:op, expr:expr, srcPos:srcPos };
     }
 
     // Identifier
@@ -686,12 +687,14 @@ var parseAtom = function (input)
     if (input:match("$"))
     {
         var opName = input:parseIdent();
+        var srcPos = input:getPos();
         input:expect("(");
         var argExprs = parseExprList(input, ")");
 
         return IRExpr::{
             instr: { op: opName},
-            argExprs: argExprs
+            argExprs: argExprs,
+            srcPos:srcPos
         };
     }
 
@@ -787,7 +790,8 @@ var parseExprPrec = function (input, minPrec)
             lhsExpr = BinOpExpr::{
                 op: op,
                 lhsExpr: lhsExpr,
-                rhsExpr: IdentExpr::{ name:identStr }
+                rhsExpr: IdentExpr::{ name:identStr },
+                srcPos: srcPos
             };
         }
 
@@ -817,7 +821,8 @@ var parseExprPrec = function (input, minPrec)
             lhsExpr = BinOpExpr::{
                 op: op,
                 lhsExpr: lhsExpr,
-                rhsExpr: rhsExpr
+                rhsExpr: rhsExpr,
+                srcPos: srcPos
             };
         }
 
@@ -834,12 +839,14 @@ var parseExprPrec = function (input, minPrec)
                 var binExpr = BinOpExpr::{
                     op: op,
                     lhsExpr: lhsExpr,
-                    rhsExpr: rhsExpr
+                    rhsExpr: rhsExpr,
+                    srcPos: srcPos
                 };
                 var assignExpr = BinOpExpr::{
                     op: OP_ASSIGN,
                     lhsExpr: lhsExpr,
-                    rhsExpr: binExpr
+                    rhsExpr: binExpr,
+                    srcPos: srcPos
                 };
                 lhsExpr = assignExpr;
             }
@@ -856,7 +863,8 @@ var parseExprPrec = function (input, minPrec)
                 lhsExpr = BinOpExpr::{
                     op: op,
                     lhsExpr: lhsExpr,
-                    rhsExpr: rhsExpr
+                    rhsExpr: rhsExpr,
+                    srcPos: srcPos
                 };
             }
         }
@@ -984,9 +992,10 @@ var parseStmt = function (input)
     // Throw statement
     if (input:keyword("throw"))
     {
+        var srcPos = input:getPos();
         var expr = parseExpr(input);
         input:expectWS(";");
-        return ThrowStmt::{ expr: expr };
+        return ThrowStmt::{ expr: expr, srcPos: srcPos};
     }
 
     // Get the current position in the input
@@ -1026,7 +1035,7 @@ var parseStmt = function (input)
         return IfStmt::{
             testExpr: testExpr,
             thenStmt: BlockStmt::{ stmts:[] },
-            elseStmt: ThrowStmt::{ expr: excExpr }
+            elseStmt: ThrowStmt::{ expr: excExpr, srcPos: srcPos }
         };
     }
 
@@ -1082,11 +1091,12 @@ Block.addInstr = function (block, instr)
 
 var Function = {};
 
-Function.new = function (params, entryBlock)
+Function.new = function (name, params, entryBlock)
 {
     // Note: functions always have at least 1 local
     // to store the hidden function/closure argument
     return Function::{
+        name: name,
         params: params,
         num_locals: 1,
         entry: entryBlock,
@@ -1280,7 +1290,7 @@ var genUnit = function (unitAST, globalObj)
 {
     var entryBlock = Block.new();
 
-    var unitFun = Function.new([], entryBlock);
+    var unitFun = Function.new("top-level", [], entryBlock);
 
     // Register variable declarations
     registerDecls(unitFun, unitAST.body, true);
@@ -1310,7 +1320,7 @@ var genUnit = function (unitAST, globalObj)
     return exportsObj;
 };
 
-var runtimeCall = function (ctx, fun)
+var runtimeCall = function (ctx, fun, src_pos)
 {
     var contBlock = Block.new();
 
@@ -1319,6 +1329,7 @@ var runtimeCall = function (ctx, fun)
     var callInstr = {
         op: "call",
         num_args: fun.params.length,
+        src_pos: src_pos,
         ret_to: contBlock
     };
 
@@ -1398,7 +1409,7 @@ var genExpr = function (ctx, expr)
         if (expr.op == OP_NOT)
         {
             genExpr(ctx, expr.expr);
-            runtimeCall(ctx, rt_not);
+            runtimeCall(ctx, rt_not, expr.srcPos);
             return;
         }
 
@@ -1408,7 +1419,7 @@ var genExpr = function (ctx, expr)
             // Generate 0 - x
             ctx:addPush(0);
             genExpr(ctx, expr.expr);
-            runtimeCall(ctx, rt_sub);
+            runtimeCall(ctx, rt_sub, expr.srcPos);
             return;
         }
 
@@ -1416,7 +1427,7 @@ var genExpr = function (ctx, expr)
         if (expr.op == OP_BIT_NOT)
         {
             genExpr(ctx, expr.expr);
-            runtimeCall(ctx, rt_bit_not);
+            runtimeCall(ctx, rt_bit_not, expr.srcPos);
             return;
         }
 
@@ -1473,7 +1484,7 @@ var genExpr = function (ctx, expr)
             // Equality comparison
             genExpr(ctx, expr.lhsExpr);
             genExpr(ctx, expr.rhsExpr);
-            runtimeCall(ctx, rt_eq);
+            runtimeCall(ctx, rt_eq, expr.srcPos);
 
             return;
         }
@@ -1483,7 +1494,7 @@ var genExpr = function (ctx, expr)
         {
             genExpr(ctx, expr.lhsExpr);
             genExpr(ctx, expr.rhsExpr);
-            runtimeCall(ctx, rt_ne);
+            runtimeCall(ctx, rt_ne, expr.srcPos);
             return;
         }
 
@@ -1491,7 +1502,7 @@ var genExpr = function (ctx, expr)
         {
             genExpr(ctx, expr.lhsExpr);
             genExpr(ctx, expr.rhsExpr);
-            runtimeCall(ctx, rt_lt);
+            runtimeCall(ctx, rt_lt, expr.srcPos);
             return;
         }
 
@@ -1499,7 +1510,7 @@ var genExpr = function (ctx, expr)
         {
             genExpr(ctx, expr.lhsExpr);
             genExpr(ctx, expr.rhsExpr);
-            runtimeCall(ctx, rt_le);
+            runtimeCall(ctx, rt_le, expr.srcPos);
             return;
         }
 
@@ -1507,7 +1518,7 @@ var genExpr = function (ctx, expr)
         {
             genExpr(ctx, expr.lhsExpr);
             genExpr(ctx, expr.rhsExpr);
-            runtimeCall(ctx, rt_gt);
+            runtimeCall(ctx, rt_gt, expr.srcPos);
             return;
         }
 
@@ -1515,7 +1526,7 @@ var genExpr = function (ctx, expr)
         {
             genExpr(ctx, expr.lhsExpr);
             genExpr(ctx, expr.rhsExpr);
-            runtimeCall(ctx, rt_ge);
+            runtimeCall(ctx, rt_ge, expr.srcPos);
             return;
         }
 
@@ -1523,7 +1534,7 @@ var genExpr = function (ctx, expr)
         {
             genExpr(ctx, expr.lhsExpr);
             genExpr(ctx, expr.rhsExpr);
-            runtimeCall(ctx, rt_in);
+            runtimeCall(ctx, rt_in, expr.srcPos);
             return;
         }
 
@@ -1531,7 +1542,7 @@ var genExpr = function (ctx, expr)
         {
             genExpr(ctx, expr.lhsExpr);
             genExpr(ctx, expr.rhsExpr);
-            runtimeCall(ctx, rt_add);
+            runtimeCall(ctx, rt_add, expr.srcPos);
             return;
         }
 
@@ -1539,7 +1550,7 @@ var genExpr = function (ctx, expr)
         {
             genExpr(ctx, expr.lhsExpr);
             genExpr(ctx, expr.rhsExpr);
-            runtimeCall(ctx, rt_sub);
+            runtimeCall(ctx, rt_sub, expr.srcPos);
             return;
         }
 
@@ -1547,7 +1558,7 @@ var genExpr = function (ctx, expr)
         {
             genExpr(ctx, expr.lhsExpr);
             genExpr(ctx, expr.rhsExpr);
-            runtimeCall(ctx, rt_mul);
+            runtimeCall(ctx, rt_mul, expr.srcPos);
             return;
         }
 
@@ -1555,7 +1566,7 @@ var genExpr = function (ctx, expr)
         {
             genExpr(ctx, expr.lhsExpr);
             genExpr(ctx, expr.rhsExpr);
-            runtimeCall(ctx, rt_div);
+            runtimeCall(ctx, rt_div, expr.srcPos);
             return;
         }
 
@@ -1563,7 +1574,7 @@ var genExpr = function (ctx, expr)
         {
             genExpr(ctx, expr.lhsExpr);
             genExpr(ctx, expr.rhsExpr);
-            runtimeCall(ctx, rt_mod);
+            runtimeCall(ctx, rt_mod, expr.srcPos);
             return;
         }
 
@@ -1571,7 +1582,7 @@ var genExpr = function (ctx, expr)
         {
             genExpr(ctx, expr.lhsExpr);
             genExpr(ctx, expr.rhsExpr);
-            runtimeCall(ctx, rt_shl);
+            runtimeCall(ctx, rt_shl, expr.srcPos);
             return;
         }
 
@@ -1579,7 +1590,7 @@ var genExpr = function (ctx, expr)
         {
             genExpr(ctx, expr.lhsExpr);
             genExpr(ctx, expr.rhsExpr);
-            runtimeCall(ctx, rt_shr);
+            runtimeCall(ctx, rt_shr, expr.srcPos);
             return;
         }
 
@@ -1587,7 +1598,7 @@ var genExpr = function (ctx, expr)
         {
             genExpr(ctx, expr.lhsExpr);
             genExpr(ctx, expr.rhsExpr);
-            runtimeCall(ctx, rt_ushr);
+            runtimeCall(ctx, rt_ushr, expr.srcPos);
             return;
         }
 
@@ -1595,7 +1606,7 @@ var genExpr = function (ctx, expr)
         {
             genExpr(ctx, expr.lhsExpr);
             genExpr(ctx, expr.rhsExpr);
-            runtimeCall(ctx, rt_and);
+            runtimeCall(ctx, rt_and, expr.srcPos);
             return;
         }
 
@@ -1603,7 +1614,7 @@ var genExpr = function (ctx, expr)
         {
             genExpr(ctx, expr.lhsExpr);
             genExpr(ctx, expr.rhsExpr);
-            runtimeCall(ctx, rt_or);
+            runtimeCall(ctx, rt_or, expr.srcPos);
             return;
         }
 
@@ -1611,7 +1622,7 @@ var genExpr = function (ctx, expr)
         {
             genExpr(ctx, expr.lhsExpr);
             genExpr(ctx, expr.rhsExpr);
-            runtimeCall(ctx, rt_xor);
+            runtimeCall(ctx, rt_xor, expr.srcPos);
             return;
         }
 
@@ -1626,7 +1637,7 @@ var genExpr = function (ctx, expr)
 
             ctx:addInstr({ op:'push', val:identExpr.name });
 
-            runtimeCall(ctx, rt_getProp);
+            runtimeCall(ctx, rt_getProp, expr.srcPos);
 
             return;
         }
@@ -1636,7 +1647,7 @@ var genExpr = function (ctx, expr)
         {
             genExpr(ctx, expr.lhsExpr);
             genExpr(ctx, expr.rhsExpr);
-            runtimeCall(ctx, rt_getElem);
+            runtimeCall(ctx, rt_getElem, expr.srcPos);
             return;
         }
 
@@ -1653,7 +1664,7 @@ var genExpr = function (ctx, expr)
         {
             genExpr(ctx, expr.lhsExpr);
             genExpr(ctx, expr.rhsExpr);
-            runtimeCall(ctx, rt_instOf);
+            runtimeCall(ctx, rt_instOf, expr.srcPos);
             return;
         }
 
@@ -1699,6 +1710,7 @@ var genExpr = function (ctx, expr)
         var entryBlock = Block.new();
 
         var fun = Function.new(
+            expr.name,
             expr.params,
             entryBlock
         );
@@ -1783,7 +1795,7 @@ var genExpr = function (ctx, expr)
         ctx:addInstr({ op:'push', val:expr.nameStr });
 
         // Get the function/method value
-        runtimeCall(ctx, rt_getProp);
+        runtimeCall(ctx, rt_getProp, expr.srcPos);
 
         var contBlock = Block.new();
 
@@ -1865,6 +1877,11 @@ var genStmt = function (ctx, stmt)
 
     if (stmt instanceof VarStmt)
     {
+        if (stmt.initExpr instanceof FunExpr && stmt.initExpr.name == '')
+        {
+            stmt.initExpr.name = stmt.identName;
+        }
+
         if (ctx.fun:hasLocal(stmt.identName))
         {
             genExpr(ctx, stmt.initExpr);
@@ -1892,7 +1909,7 @@ var genStmt = function (ctx, stmt)
     if (stmt instanceof ThrowStmt)
     {
         genExpr(ctx, stmt.expr);
-        runtimeCall(ctx, rt_throw);
+        runtimeCall(ctx, rt_throw, stmt.srcPos);
         return;
     }
 
@@ -2141,6 +2158,11 @@ var genAssign = function (ctx, lhsExpr, rhsExpr)
             parseError(false, "cannot assign to exports variable");
         }
 
+        if (rhsExpr instanceof FunExpr && rhsExpr.name == '')
+        {
+            rhsExpr.name = lhsExpr.name;
+        }
+
         if (ctx.fun:hasLocal(lhsExpr.name))
         {
             var localIdx = ctx.fun:getLocalIdx(lhsExpr.name);
@@ -2156,7 +2178,7 @@ var genAssign = function (ctx, lhsExpr, rhsExpr)
             ctx:addInstr({ op:'dup', idx:2 });
             ctx:addOp("set_field");
         }
-
+        
         return;
     }
 
@@ -2192,7 +2214,7 @@ var genAssign = function (ctx, lhsExpr, rhsExpr)
             // Evaluate the rhs value
             genExpr(ctx, rhsExpr);
 
-            runtimeCall(ctx, rt_setElem);
+            runtimeCall(ctx, rt_setElem, lhsExpr.srcPos);
 
             return;
         }

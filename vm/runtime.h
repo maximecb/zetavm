@@ -5,6 +5,7 @@
 #include <string>
 #include <cstring>
 #include <unordered_map>
+#include <iostream>
 
 /// Type tag, 8 bits
 typedef uint8_t Tag;
@@ -162,40 +163,6 @@ public:
     size_t allocated() const;
 };
 
-/**
-Run-time error exception class
-*/
-class RunError
-{
-protected:
-
-    RunError() {}
-
-    std::string msg;
-    char msgBuffer[1024];
-
-public:
-
-    RunError(std::string errorMsg)
-    {
-        this->msg = errorMsg;
-    }
-
-    virtual ~RunError()
-    {
-    }
-
-    virtual std::string toString() const
-    {
-        return msg;
-    }
-
-    virtual void rethrow(std::string contextMsg)
-    {
-        this->msg = msg + "\n" + contextMsg;
-        throw *this;
-    }
-};
 
 /**
 Heap object value wrapper base class
@@ -393,6 +360,47 @@ public:
 };
 
 /**
+Run-time error exception class
+*/
+class RunError
+{
+protected:
+
+    RunError() {}
+
+    Object val = Object::newObject(2);
+
+public:
+
+    RunError(std::string errorMsg)
+    {
+        val.setField("thrown_value", String(errorMsg));
+        val.setField("stack", Array(10));
+    }
+    
+    RunError(Object nested) : val(nested)
+    {
+    }
+    
+    RunError(Value thrownValue)
+    {
+        val.setField("thrown_value", thrownValue);
+        val.setField("stack", Array(10));
+    }
+
+    virtual ~RunError()
+    {
+    }
+
+    virtual std::string toString();
+
+    Object getExcVal() const
+    {
+        return val;
+    }
+};
+
+/**
 Inline cache to speed up property lookups
 */
 class ICache
@@ -534,3 +542,4 @@ std::string posToString(Value srcPos);
 
 /// Unit test for the runtime
 void testRuntime();
+

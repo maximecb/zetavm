@@ -296,7 +296,8 @@ BlockStmt* parseBlockStmt(Input& input, std::string endStr);
 Parse a number
 */
 
-FloatExpr* parseFloatingPart(Input& input, bool neg, char literal[64]) {
+FloatExpr* parseFloatingPart(Input& input, bool neg, char literal[64])
+{
     int length = strlen(literal);
     for (int i = 0;;i++)
     {
@@ -336,7 +337,8 @@ ASTExpr* parseNum(Input& input, bool neg)
             break;
     }
 
-    if (input.peekCh() == '.' || input.peekCh() == 'e') {
+    if (input.peekCh() == '.' || input.peekCh() == 'e')
+    {
         return parseFloatingPart(input, neg, literal);
     }
     int intVal = atoi(literal);
@@ -1106,6 +1108,14 @@ ASTStmt* parseStmt(Input& input)
 
         auto initExpr = parseExpr(input);
 
+        if (auto funExpr = dynamic_cast<FunExpr*>(initExpr))
+        {
+            if (funExpr->name == "")
+            {
+                funExpr->name = ident;
+            }
+        }
+
         input.expectWS(";");
 
         return new VarStmt(ident, initExpr);
@@ -1175,6 +1185,12 @@ ASTStmt* parseStmt(Input& input)
             errMsg = parseExpr(input);
         else
             errMsg = new StringExpr("assertion failed");
+
+        //Pretend to be similar to the self hosted implementation
+        //by wrapping the msg in an object
+        errMsg = new ObjectExpr(
+            {"msg"}, {errMsg}
+            );
 
         input.expectWS(")");
         input.expectWS(";");

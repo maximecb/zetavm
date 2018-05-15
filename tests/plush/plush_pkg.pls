@@ -13,10 +13,7 @@ var testParse = function (str)
 
     catch (e)
     {
-        assert (
-            false,
-            e.msg
-        );
+        throw e;
     }
 };
 

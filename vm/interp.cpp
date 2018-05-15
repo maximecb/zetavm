@@ -1178,6 +1178,28 @@ void throwExc(
     auto itr = instrMap.find(throwInstr);
     assert (itr != instrMap.end());
     auto curFun = itr->second->fun;
+   
+    //Get current position information
+    Object stackEntry = Object::newObject(2);
+
+    if (!curFun.hasField("name"))
+    {
+        stackEntry.setField("fun_name", String("unnamed function"));
+    }
+    else
+    {
+        stackEntry.setField("fun_name", curFun.getField("name"));
+    }
+    Value srcPos = getSrcPos(throwInstr);
+    if (srcPos.isObject())
+    {
+        stackEntry.setField("src_pos", getSrcPos(throwInstr));
+    }
+    if (excVal.isObject())
+    {
+        Object excObject = excVal;
+        excObject.getFieldArr("stack").push(stackEntry);
+    }
 
     // Until we are done unwinding the stack
     for (;;)
@@ -1206,40 +1228,42 @@ void throwExc(
         if (retVer == nullptr)
         {
             //std::cout << "Uncaught exception" << std::endl;
-
-            std::string errMsg;
-
             if (excVal.isObject())
             {
-                auto excObj = Object(excVal);
-
-                if (excObj.hasField("src_pos"))
-                {
-                    auto srcPosVal = excObj.getField("src_pos");
-                    errMsg += posToString(srcPosVal) + " - ";
-                }
-
-                if (excObj.hasField("msg"))
-                {
-                    auto errMsgVal = excObj.getField("msg");
-                    errMsg += errMsgVal.toString();
-                }
-                else
-                {
-                    errMsg += "uncaught user exception object";
-                }
+                throw RunError((Object)excVal);
             }
             else
             {
-                errMsg = excVal.toString();
+                throw RunError(excVal);
             }
-
-            throw RunError(errMsg);
         }
 
         // Find the info associated with the return address
         assert (retAddrMap.find(retVer) != retAddrMap.end());
         auto retEntry = retAddrMap[retVer];
+      
+        Object stackEntry = Object::newObject(2);
+        
+        Object fun = retEntry.retVer->fun;
+        if (!fun.hasField("name"))
+        {
+            stackEntry.setField("fun_name", String("unnamed function"));
+        }
+        else
+        {
+            stackEntry.setField("fun_name", fun.getField("name"));
+        }
+        Object callInstr = (Object)Value((refptr)retEntry.callInstr, TAG_OBJECT);
+        if (callInstr.hasField("src_pos"))
+        {
+            stackEntry.setField("src_pos", callInstr.getField("src_pos"));
+        }
+        if (excVal.isObject())
+        {
+            Object excObject = (Object)excVal;
+            excObject.getFieldArr("stack").push(stackEntry);
+            excVal = excObject;
+        }
 
         // Get the function associated with the return address
         curFun = retEntry.retVer->fun;
@@ -1254,7 +1278,6 @@ void throwExc(
             // Clear the temporary stack
             stackPtr += retEntry.numTmps;
 
-            // Push the exception value on the stack
             pushVal(excVal);
 
             // Compile exception handler if needed
@@ -1420,15 +1443,16 @@ __attribute__((always_inline)) inline void hostCall(
         }
     }
 
-    catch (RunError err)
+    catch (RunError& err)
     {
         // Pop the arguments from the stack
         stackPtr += numArgs;
 
-        // Create an exception object
-        auto excVal = Object::newObject();
-        auto errStr = String(err.toString());
-        excVal.setField("msg", errStr);
+        auto excVal = err.getExcVal();
+
+        Object stackEntry = Object::newObject(1);
+        stackEntry.setField("fun_name", String(hostFn->getName() + " (host function)"));
+        excVal.getFieldArr("stack").push(stackEntry); 
 
         auto retEntry = retAddrMap[retVer];
 
@@ -2336,7 +2360,29 @@ Value execCode()
             {
                 // Pop the exception value
                 auto excVal = popVal();
-                throwExc((uint8_t*)&op, excVal);
+                if (excVal.isObject())
+                {
+                    Object throwObj = Object::newObject(3);
+                    Object excObj = (Object)excVal;
+                    if (excObj.hasField("stack"))
+                    {
+                        throwObj.setField("caused_by", excObj);
+                    }
+                    if (excObj.hasField("thrown_value"))
+                    {
+                        throwObj.setField("thrown_value", excObj.getField("thrown_value"));
+                    }
+                    else
+                    {
+                        throwObj.setField("thrown_value", excObj);
+                    }
+                    throwObj.setField("stack", Array(10));
+                    throwExc((uint8_t*)&op, throwObj);
+                }
+                else
+                {
+                    throwExc((uint8_t*)&op, excVal);
+                }
             }
             break;
 

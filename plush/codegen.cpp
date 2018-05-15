@@ -79,14 +79,18 @@ private:
     /// Local variable indices
     std::unordered_map<std::string, size_t> localIdxs;
 
+    std::string name;
+
 public:
 
     Function(
         std::vector<std::string> params,
-        Block* entryBlock
+        Block* entryBlock,
+        const std::string& nname
     )
     : params(params),
-      entryBlock(entryBlock)
+      entryBlock(entryBlock),
+      name(nname)
     {
         idNo = lastIdNo++;
     }
@@ -136,6 +140,10 @@ public:
         out += "  entry:@" + entryBlock->getHandle() + ",\n";
         out += "  params:" + paramsStr + ",\n";
         out += "  num_locals:" + std::to_string(numLocals) + ",\n";
+        if (name != "")
+        {
+            out += "  name: \'" + name + "\',\n";
+        }
         out += "};\n\n";
 
         entryBlock = nullptr;
@@ -366,7 +374,7 @@ std::string genUnit(FunExpr* unitAST)
 
     Block* entryBlock = new Block();
 
-    Function* unitFun = new Function(std::vector<std::string>(), entryBlock);
+    Function* unitFun = new Function(std::vector<std::string>(), entryBlock, "top-level");
 
     // Register the variable declarations
     registerDecls(unitFun, unitAST->body, true);
@@ -803,7 +811,8 @@ void genExpr(CodeGenCtx& ctx, ASTExpr* expr)
 
         Function* fun = new Function(
             funExpr->params,
-            entryBlock
+            entryBlock,
+            funExpr->name
         );
 
         // Register the parameter variables

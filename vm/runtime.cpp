@@ -3,6 +3,7 @@
 #include <cstring>
 #include <iostream>
 #include "runtime.h"
+#include "serialize.h"
 
 /// Undefined value constant
 /// Note: zeroed memory is automatically undefined
@@ -47,7 +48,7 @@ std::string Value::toString() const
         return "array";
 
         case TAG_OBJECT:
-        return "object";
+        return serialize(*this, true);
 
         default:
         assert (false);
@@ -758,6 +759,73 @@ std::string posToString(Value srcPos)
     );
 }
 
+
+std::string RunError::toString() 
+{
+    std::string errMsg;
+    Value thrownValue;
+    if (val.hasField("thrown_value"))
+    {
+        thrownValue = val.getField("thrown_value");
+    }
+    else if (val.hasField("msg"))
+    {
+        thrownValue = val.getField("msg");
+    }
+    else
+    {
+        thrownValue = val;
+    }
+    
+    if (thrownValue.isObject())
+    {
+        auto excObj = Object(thrownValue);
+
+        if (excObj.hasField("src_pos"))
+        {
+            auto srcPosVal = excObj.getField("src_pos");
+            errMsg += posToString(srcPosVal) + " - ";
+        }
+
+        if (excObj.hasField("msg"))
+        {
+            auto errMsgVal = excObj.getField("msg");
+            errMsg += errMsgVal.toString();
+        }
+        else
+        {
+            errMsg += "uncaught user exception object";
+        }
+    }
+    else
+    {
+        errMsg = thrownValue.toString();
+    }
+    Array stacktrace = val.getFieldArr("stack");
+    for (size_t i = 0; i < stacktrace.length(); ++i)
+    {
+        Object entry = stacktrace.getElem(i);
+        errMsg += "\nin ";
+        errMsg += (std::string)entry.getField("fun_name");
+        errMsg += " at ";
+        if (entry.hasField("src_pos"))
+        {
+            errMsg += posToString(entry.getField("src_pos"));
+        }
+        else 
+        {
+            errMsg += "unknown location";
+        }
+    }
+    if (val.hasField("caused_by"))
+    {
+        Object caused_by = val.getField("caused_by");
+        errMsg += "\n\ncaused by: \n";
+        errMsg += RunError(caused_by).toString();
+    }
+    return errMsg;
+}
+
 /// Unit test for the runtime
 void testRuntime()
 {
@@ -832,3 +900,6 @@ void testRuntime()
         fieldStr += itr.get();
     assert (fieldStr == "foobar");
 }
+
+
+

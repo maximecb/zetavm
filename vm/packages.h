@@ -29,6 +29,8 @@ public:
     Value call3(Value arg0, Value arg1, Value arg2);
 
     size_t getNumParams() const { return numParams; }
+
+    std::string getName() const { return name; }
 };
 
 class ImportError : public RunError

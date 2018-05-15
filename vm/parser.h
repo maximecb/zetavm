@@ -82,20 +82,19 @@ class ParseError : public RunError
 {
 public:
 
-    ParseError(std::string msg)
+    ParseError(std::string msg) : RunError(msg)
     {
         assert (msg.length() > 0);
-        this->msg = msg;
     }
 
-    ParseError(Input& input, std::string msg)
-    {
-        this->msg = (
+    ParseError(Input& input, std::string msg) :
+        RunError(
             input.getSrcName() + "@" +
             std::to_string(input.getLineNo()) + ":" +
             std::to_string(input.getColNo()) + " - " +
             msg
-        );
+        )
+    {
     }
 
     virtual ~ParseError()
